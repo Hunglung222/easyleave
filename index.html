@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EasyLeave - 曆年制特休精算神器</title>
+    <style>
+        body { font-family: "Microsoft JhengHei", sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; padding: 20px; }
+        .container { background-color: white; width: 100%; max-width: 600px; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); position: relative; }
+        
+        /* 作者署名樣式 */
+        .author-tag { position: absolute; top: 10px; right: 20px; font-size: 11px; color: #bbb; font-style: italic; }
+        
+        h2 { color: #2c3e50; text-align: center; margin-bottom: 20px; letter-spacing: 1px; }
+        .input-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
+        input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 16px; box-sizing: border-box; }
+        
+        .btn-calc { width: 100%; padding: 15px; background-color: #2980b9; color: white; border: none; border-radius: 8px; font-size: 20px; cursor: pointer; transition: 0.3s; font-weight: bold; margin-top: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .btn-calc:hover { background-color: #3498db; transform: translateY(-2px); }
+
+        .btn-save-small { background-color: #f39c12; color: white; border: none; border-radius: 5px; padding: 8px 15px; font-size: 14px; cursor: pointer; font-weight: bold; display: inline-flex; align-items: center; margin-left: 10px; }
+        .btn-save-small:hover { background-color: #e67e22; }
+        
+        #result-area { margin-top: 25px; display: none; border-top: 1px solid #eee; padding-top: 20px; }
+        .total-box-wrapper { background-color: #e8f6f3; border-left: 5px solid #1abc9c; padding: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .total-content { display: flex; flex-direction: column; }
+        .total-title { font-size: 14px; color: #666; margin-bottom: 5px; }
+        .total-value { font-size: 32px; font-weight: bold; color: #16a085; }
+        .total-days { font-size: 22px; color: #16a085; font-weight: bold; margin-left: 10px; }
+        
+        .detail-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+        .detail-table th, .detail-table td { border: 1px solid #eee; padding: 8px; text-align: left; }
+        .detail-table th { background-color: #f8f9fa; color: #333; }
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 10px; font-size: 12px; color: white; background-color: #95a5a6; margin-left: 5px; }
+        .badge-leap { background-color: #e74c3c; } 
+
+        .footer-link { margin-top: 25px; padding-top: 15px; border-top: 1px solid #eee; text-align: center; }
+        .footer-link a { color: #3498db; text-decoration: none; font-weight: bold; font-size: 14px; display: inline-flex; align-items: center; }
+        
+        #storage-area { margin-top: 30px; border-top: 2px dashed #ddd; padding-top: 20px; display: none; }
+        .storage-title { font-size: 16px; color: #2c3e50; margin-bottom: 10px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .storage-actions { display: flex; gap: 10px; }
+        .record-list { list-style: none; padding: 0; margin: 0; }
+        .record-item { background: #f9f9f9; border: 1px solid #eee; padding: 12px; margin-bottom: 8px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: 0.2s; }
+        .record-item:hover { background: #eef2f3; border-color: #ccc; }
+        .record-info { display: flex; flex-direction: column; }
+        .record-header { font-weight: bold; color: #333; font-size: 15px; margin-bottom: 4px; }
+        .record-detail { font-size: 13px; color: #666; }
+        .record-result { color: #16a085; font-weight: bold; margin-left: 5px; }
+        .btn-delete-single { background-color: transparent; border: 1px solid #e74c3c; color: #e74c3c; border-radius: 5px; padding: 5px 10px; cursor: pointer; font-size: 14px; }
+        .btn-clear-all { background-color: #7f8c8d; color: white; font-size: 12px; padding: 5px 10px; width: auto; border:none; border-radius:4px; cursor: pointer; }
+        .btn-export { background-color: #27ae60; color: white; font-size: 12px; padding: 5px 10px; width: auto; border:none; border-radius:4px; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="author-tag">Created by Hunglung Lin</div>
+    <h2>📅 EasyLeave 曆年制特休計算器</h2>
+    
+    <div class="input-group">
+        <label for="hireDate">員工到職日</label>
+        <input type="date" id="hireDate" value="2024-06-15">
+    </div>
+
+    <div class="input-group">
+        <label for="queryYear">查詢年度 (YYYY)</label>
+        <input type="number" id="queryYear" placeholder="例如：2026">
+    </div>
+
+    <button onclick="calculateLeaveSafe()" class="btn-calc">開始計算</button>
+
+    <div id="result-area">
+        <div class="total-box-wrapper">
+            <div class="total-content">
+                <div class="total-title">該年度新增特休總時數 (Annual Leave)</div>
+                <div>
+                    <span class="total-value" id="totalHours">0.00 小時</span>
+                    <span class="total-days" id="totalDays"></span>
+                </div>
+            </div>
+            <button onclick="saveResult()" class="btn-save-small">💾 儲存結果</button>
+        </div>
+
+        <h3>🔍 詳細計算說明</h3>
+        <table class="detail-table">
+            <thead>
+                <tr>
+                    <th>區間</th>
+                    <th>年資權益</th>
+                    <th>有效重疊天數 / 分母</th>
+                    <th>小計</th>
+                </tr>
+            </thead>
+            <tbody id="detailBody"></tbody>
+        </table>
+
+        <div class="footer-link">
+            <a href="https://calcr2.mol.gov.tw/RestDays" target="_blank">🔗 【勞動部】特別休假日數試算系統</a>
+        </div>
+    </div>
+
+    <div id="storage-area">
+        <div class="storage-title">
+            <span>📋 計算紀錄 (<span id="record-count">0</span>/10)</span>
+            <div class="storage-actions">
+                <button onclick="exportCSV()" class="btn-export">📥 匯出 CSV</button>
+                <button onclick="clearAllRecords()" class="btn-clear-all">🗑️ 清除全部</button>
+            </div>
+        </div>
+        <ul id="record-list" class="record-list"></ul>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => { document.getElementById('queryYear').value = new Date().getFullYear(); });
+    let savedRecords = [];
+    const MAX_RECORDS = 10;
+    function isLeap(y) { return (y % 4 === 0 && y % 100 !== 0) || (y % 400 === 0); }
+    function getDaysDiff(s, e) { return Math.round(Math.abs((e - s) / 86400000)) + 1; }
+    function formatDate(d) { return (d.getMonth() + 1) + "/" + d.getDate(); }
+    function getOverlapDays(s1, e1, s2, e2) { const s = s1 > s2 ? s1 : s2; const e = e1 < e2 ? e1 : e2; return s > e ? 0 : getDaysDiff(s, e); }
+    function hasLeapDay(s, e) { for (let y = s.getFullYear(); y <= e.getFullYear(); y++) { if (isLeap(y)) { const ld = new Date(y, 1, 29); if (ld >= s && ld <= e) return true; } } return false; }
+    function getEntitlement(y) { if (y < 1) return 0; if (y < 2) return 7; if (y < 3) return 10; if (y < 5) return 14; if (y < 10) return 15; let d = 16 + (y - 10); return d > 30 ? 30 : d; }
+    function calculateLeaveSafe() { try { calculateLeave(); } catch (e) { alert("錯誤：" + e.message); } }
+    function calculateLeave() {
+        const hireDateVal = document.getElementById('hireDate').value;
+        const queryYear = parseInt(document.getElementById('queryYear').value);
+        if (!hireDateVal || !queryYear) return alert("請完整輸入");
+        const hireDate = new Date(hireDateVal);
+        const sixM = new Date(hireDate); sixM.setMonth(sixM.getMonth() + 6);
+        const oneY = new Date(hireDate); oneY.setFullYear(oneY.getFullYear() + 1);
+        const probEnd = new Date(oneY); probEnd.setDate(probEnd.getDate() - 1);
+        const probDenom = getDaysDiff(sixM, probEnd);
+        const anniv = new Date(queryYear, hireDate.getMonth(), hireDate.getDate());
+        const p1S = new Date(queryYear, 0, 1), p1E = new Date(anniv); p1E.setDate(p1E.getDate() - 1);
+        const p2S = new Date(anniv), p2E = new Date(queryYear, 11, 31);
+        let totalH = 0, html = "";
+        const process = (start, end, isP2) => {
+            if (end < start || end < hireDate) return;
+            let num = 0, den = isLeap(queryYear) ? 366 : 365, h = 0, lbl = "";
+            if (end >= sixM && end < oneY) {
+                lbl = "滿半年 (3天)"; den = probDenom; if (hasLeapDay(sixM, probEnd)) lbl += " <span class='badge badge-leap'>含2/29</span>";
+                num = getOverlapDays(start, end, sixM, probEnd); h = 3 * 8 * (num / den);
+            } else if (end >= oneY) {
+                let y = queryYear - hireDate.getFullYear() - (isP2 ? 0 : 1);
+                let d = getEntitlement(y); lbl = `滿 ${y} 年 (${d}天)`; if (d === 30 && y > 24) lbl = `滿 ${y} 年 (上限)`;
+                num = getDaysDiff(start, end); h = d * 8 * (num / den);
+            }
+            if (num > 0) { totalH += h; html += `<tr><td>${formatDate(start)}~${formatDate(end)}</td><td>${lbl}</td><td>${num}/${den}</td><td>${h.toFixed(2)}H</td></tr>`; }
+        };
+        process(p1S, p1E, false); process(p2S, p2E, true);
+        document.getElementById('detailBody').innerHTML = html || "<tr><td colspan='4'>尚無權利</td></tr>";
+        document.getElementById('totalHours').innerText = totalH.toFixed(2) + " 小時";
+        document.getElementById('totalDays').innerText = "【 " + (totalH / 8).toFixed(1) + " 日 】";
+        document.getElementById('result-area').style.display = 'block';
+        document.getElementById('result-area').scrollIntoView({ behavior: 'smooth' });
+    }
+    function saveResult() {
+        const h = document.getElementById('totalHours').innerText;
+        if (h === "0.00 小時") return alert("請先計算");
+        if (savedRecords.length >= MAX_RECORDS) return alert("紀錄已滿");
+        let name = prompt("輸入編號/姓名 (空值帶時間)："); if (name === null) return;
+        if (name.trim() === "") name = new Date().toTimeString().split(' ')[0];
+        let p1="無", p2="無", rows=document.querySelectorAll('#detailBody tr');
+        rows.forEach((r, i) => { let c=r.querySelectorAll('td'); if (c.length>=4) { let s=`${c[0].innerText} (${c[1].innerText.replace("含2/29","").trim()}) : ${c[2].innerText} ➜ ${c[3].innerText}`; if(i===0) p1=s; if(i===1) p2=s; } });
+        savedRecords.unshift({ name, hireDate: document.getElementById('hireDate').value, year: document.getElementById('queryYear').value, result: h+" "+document.getElementById('totalDays').innerText, p1, p2 });
+        renderRecords();
+    }
+    function renderRecords() {
+        const area = document.getElementById('storage-area'); document.getElementById('record-count').innerText = savedRecords.length;
+        area.style.display = savedRecords.length > 0 ? 'block' : 'none';
+        let html = ""; savedRecords.forEach((r, i) => {
+            html += `<li class="record-item" onclick="loadRecord(${i})"><div class="record-info"><div class="record-header"><span>#${savedRecords.length-i} ${r.name}</span><span class="record-result">${r.result}</span></div><div class="record-detail">到職：${r.hireDate} | 年度：${r.year}</div></div><button class="btn-delete-single" onclick="deleteRecord(event, ${i})">🗑️</button></li>`;
+        });
+        document.getElementById('record-list').innerHTML = html;
+    }
+    function loadRecord(i) { const r = savedRecords[i]; document.getElementById('hireDate').value = r.hireDate; document.getElementById('queryYear').value = r.year; calculateLeaveSafe(); }
+    function deleteRecord(e, i) { e.stopPropagation(); if (confirm("刪除？")) { savedRecords.splice(i, 1); renderRecords(); } }
+    function clearAllRecords() { if (confirm("全清？")) { savedRecords = []; renderRecords(); } }
+    function exportCSV() {
+        let csv = "\uFEFF序號,姓名,到職日,年度,總結果,前段計算,後段計算\n";
+        savedRecords.forEach((r, i) => { csv += `${savedRecords.length-i},"${r.name}","${r.hireDate}","${r.year}","${r.result}","${r.p1}","${r.p2}"\n`; });
+        const link = document.createElement("a"); const now = new Date();
+        link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+        link.download = `特休報表_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}.csv`;
+        link.click();
+    }
+</script>
+
+</body>
+</html>
