@@ -141,7 +141,7 @@
 
     <!-- Query Year (anniversary mode) -->
     <div class="input-group" id="anniv-year-group" style="display:none;">
-        <label for="queryYearAnniv">查詢年度 (YYYY) — 自動顯示當下所在區間及前後各一段</label>
+        <label for="queryYearAnniv">查詢年度 (YYYY) — 顯示該年度重疊區間及前後各一段</label>
         <input type="number" id="queryYearAnniv" placeholder="例如：2025">
     </div>
 
@@ -209,10 +209,12 @@ let currentMode = 'calendar';
 let savedRecords = [];
 const MAX_RECORDS = 10;
 const FULLTIME_HOURS = 2088;
+const STORAGE_KEY = 'easyleave.records.v1';
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('queryYear').value = new Date().getFullYear();
     document.getElementById('queryYearAnniv').value = new Date().getFullYear();
+    loadRecordsFromStorage();
 });
 
 // ── Mode ────────────────────────────────────────────────────────────────
@@ -254,9 +256,9 @@ function toggleTenurePopup() {
 function calcTenure() {
     const hireDateVal = document.getElementById('hireDate').value;
     if (!hireDateVal) return alert('請先輸入到職日');
-    const hire = new Date(hireDateVal);
+    const hire = parseDateInput(hireDateVal);
     const refVal = document.getElementById('tenureRefDate').value;
-    const ref = refVal ? new Date(refVal) : new Date();
+    const ref = refVal ? parseDateInput(refVal) : new Date();
     if (ref < hire) return alert('基準日不能早於到職日');
     const diffMs = ref - hire;
     const years = diffMs / (1000 * 60 * 60 * 24 * 365.25);
@@ -271,9 +273,27 @@ function today() {
 
 // ── Shared helpers ───────────────────────────────────────────────────────
 function isLeap(y) { return (y % 4 === 0 && y % 100 !== 0) || (y % 400 === 0); }
+function parseDateInput(value) {
+    const [y, m, d] = value.split('-').map(Number);
+    return new Date(y, m - 1, d);
+}
 function getDaysDiff(s, e) { return Math.round(Math.abs((e - s) / 86400000)) + 1; }
 function formatDate(d) { return d.getFullYear()+'/'+(d.getMonth()+1).toString().padStart(2,'0')+'/'+d.getDate().toString().padStart(2,'0'); }
 function getOverlapDays(s1, e1, s2, e2) { const s = s1 > s2 ? s1 : s2; const e = e1 < e2 ? e1 : e2; return s > e ? 0 : getDaysDiff(s, e); }
+function addMonthsClamped(date, months) {
+    const d = new Date(date);
+    const originalDay = d.getDate();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + months);
+    d.setDate(Math.min(originalDay, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+    return d;
+}
+function serviceAnniversaryDate(hireDate, years) {
+    const y = hireDate.getFullYear() + years;
+    const m = hireDate.getMonth();
+    const day = Math.min(hireDate.getDate(), new Date(y, m + 1, 0).getDate());
+    return new Date(y, m, day);
+}
 function hasLeapDay(s, e) { for (let y = s.getFullYear(); y <= e.getFullYear(); y++) { if (isLeap(y)) { const ld = new Date(y, 1, 29); if (ld >= s && ld <= e) return true; } } return false; }
 function getEntitlement(y) {
     if (y < 1) return 0; if (y < 2) return 7; if (y < 3) return 10;
@@ -291,12 +311,12 @@ function yearsOfServiceAt(hireDate, atDate) {
 
 // ── Calendar Mode ────────────────────────────────────────────────────────
 function calculateCalendar(hireDateVal, queryYear, ratio) {
-    const hireDate = new Date(hireDateVal);
-    const sixM = new Date(hireDate); sixM.setMonth(sixM.getMonth() + 6);
-    const oneY = new Date(hireDate); oneY.setFullYear(oneY.getFullYear() + 1);
+    const hireDate = parseDateInput(hireDateVal);
+    const sixM = addMonthsClamped(hireDate, 6);
+    const oneY = serviceAnniversaryDate(hireDate, 1);
     const probEnd = new Date(oneY); probEnd.setDate(probEnd.getDate() - 1);
     const probDenom = getDaysDiff(sixM, probEnd);
-    const anniv = new Date(queryYear, hireDate.getMonth(), hireDate.getDate());
+    const anniv = serviceAnniversaryDate(hireDate, queryYear - hireDate.getFullYear());
     const p1S = new Date(queryYear, 0, 1), p1E = new Date(anniv); p1E.setDate(p1E.getDate() - 1);
     const p2S = new Date(anniv), p2E = new Date(queryYear, 11, 31);
 
@@ -312,7 +332,11 @@ function calculateCalendar(hireDateVal, queryYear, ratio) {
             let y = queryYear - hireDate.getFullYear() - (isP2 ? 0 : 1);
             let d = getEntitlement(y); lbl = `滿 ${y} 年 (${d}天)`;
             if (d === 30 && y > 24) lbl = `滿 ${y} 年 (上限 30天)`;
-            num = getDaysDiff(start, end); h = d * 8 * (num / den);
+            const segStart = serviceAnniversaryDate(hireDate, y);
+            const segEnd = serviceAnniversaryDate(hireDate, y + 1); segEnd.setDate(segEnd.getDate() - 1);
+            den = getDaysDiff(segStart, segEnd);
+            if (hasLeapDay(segStart, segEnd)) lbl += " <span class='badge badge-leap'>含2/29</span>";
+            num = getOverlapDays(start, end, segStart, segEnd); h = d * 8 * (num / den);
         }
         if (num > 0) {
             const hAdj = h * ratio;
@@ -330,12 +354,12 @@ function formatDateShort(d) { return (d.getMonth()+1)+'/'+d.getDate(); }
 // Builds ALL segments from hire date onwards (0~半年, 半年~1年, 1年~2年, …)
 // then filters to the window around queryYear
 function calculateAnniversary(hireDateVal, queryYear, ratio) {
-    const hireDate = new Date(hireDateVal);
+    const hireDate = parseDateInput(hireDateVal);
     const today = new Date();
 
     // Key milestone dates
-    const sixM = new Date(hireDate); sixM.setMonth(sixM.getMonth() + 6);
-    const oneY = new Date(hireDate); oneY.setFullYear(oneY.getFullYear() + 1);
+    const sixM = addMonthsClamped(hireDate, 6);
+    const oneY = serviceAnniversaryDate(hireDate, 1);
 
     // Build all segments starting from hire
     const allSegs = [];
@@ -351,9 +375,9 @@ function calculateAnniversary(hireDateVal, queryYear, ratio) {
     allSegs.push({ segStart: new Date(sixM), segEnd: halfYearEnd, label: '滿半年 (3天)', days: 3, hours: 3 * 8 * ratio });
 
     // Segments 2+: each anniversary year
-    for (let y = 1; y <= 30; y++) {
-        const segStart = new Date(hireDate); segStart.setFullYear(hireDate.getFullYear() + y);
-        const segEnd   = new Date(hireDate); segEnd.setFullYear(hireDate.getFullYear() + y + 1);
+    for (let y = 1; y <= 80; y++) {
+        const segStart = serviceAnniversaryDate(hireDate, y);
+        const segEnd   = serviceAnniversaryDate(hireDate, y + 1);
         segEnd.setDate(segEnd.getDate() - 1);
         const days = getEntitlement(y);
         const hours = days * 8 * ratio;
@@ -361,14 +385,17 @@ function calculateAnniversary(hireDateVal, queryYear, ratio) {
         if (segStart.getFullYear() > queryYear + 2) break; // no need to go further
     }
 
-    // Mark isCurrent and filter to a useful window (show ~3 rows around queryYear)
-    allSegs.forEach(s => { s.isCurrent = today >= s.segStart && today <= s.segEnd; });
+    // Mark the real current segment, but anchor the displayed window to the requested year.
+    allSegs.forEach(s => {
+        s.isCurrent = today >= s.segStart && today <= s.segEnd;
+        s.overlapsQueryYear = getOverlapDays(s.segStart, s.segEnd, new Date(queryYear, 0, 1), new Date(queryYear, 11, 31)) > 0;
+    });
 
-    // Find the segment containing today (or closest future one)
-    const currentIdx = allSegs.findIndex(s => s.isCurrent);
-    const anchorIdx  = currentIdx >= 0 ? currentIdx : allSegs.findIndex(s => s.segStart.getFullYear() >= queryYear);
-    const from = Math.max(0, anchorIdx - 1);
-    const to   = Math.min(allSegs.length - 1, anchorIdx + 1);
+    const firstOverlapIdx = allSegs.findIndex(s => s.overlapsQueryYear);
+    if (firstOverlapIdx < 0) return [];
+    const lastOverlapIdx = allSegs.findLastIndex ? allSegs.findLastIndex(s => s.overlapsQueryYear) : allSegs.length - 1 - [...allSegs].reverse().findIndex(s => s.overlapsQueryYear);
+    const from = Math.max(0, firstOverlapIdx - 1);
+    const to   = Math.min(allSegs.length - 1, lastOverlapIdx + 1);
 
     return allSegs.slice(from, to + 1);
 }
@@ -400,15 +427,15 @@ function calculate() {
         if (!queryYear) return alert('請輸入查詢年度');
         const segs = calculateAnniversary(hireDateVal, queryYear, ratio);
         if (segs.length === 0) { alert('該年度尚無週年特休'); return; }
-        // Find current period (today falls within); fallback to first non-zero segment
-        const currentSeg = segs.find(s => s.isCurrent) || segs.find(s => s.hours > 0) || segs[0];
+        // Card prioritizes the real current period only when it is in view; otherwise show the first paid period overlapping the queried year.
+        const currentSeg = segs.find(s => s.isCurrent) || segs.find(s => s.overlapsQueryYear && s.hours > 0) || segs.find(s => s.overlapsQueryYear) || segs[0];
         const adjNote = ratio < 1 ? ` <span class='badge badge-parttime'>×${ratio.toFixed(2)}</span>` : '';
         // Card: only current period
         const cardHoursStr = currentSeg.hours > 0
             ? `${currentSeg.hours.toFixed(2)} 小時 &nbsp;【 ${(currentSeg.hours/8).toFixed(1)} 日 】${adjNote}`
             : `<span style="color:#999; font-size:18px;">0 小時（尚未達半年）</span>`;
         const blocksHtml = `<div class="anniv-block">
-            <div class="anniv-block-title">📌 當前所在區間：${formatDate(currentSeg.segStart)} ～ ${formatDate(currentSeg.segEnd)}</div>
+            <div class="anniv-block-title">📌 ${currentSeg.isCurrent ? '當前所在區間' : '查詢年度代表區間'}：${formatDate(currentSeg.segStart)} ～ ${formatDate(currentSeg.segEnd)}</div>
             <div class="anniv-block-value">${cardHoursStr}</div>
         </div>`;
         // Table: all segments
@@ -451,7 +478,7 @@ function saveResult() {
     } else {
         const block = document.querySelector('#anniv-blocks .anniv-block');
         if (block) {
-            const title = block.querySelector('.anniv-block-title').innerText.replace('📌 當前所在區間：', '').trim();
+            const title = block.querySelector('.anniv-block-title').innerText.replace(/^📌 (當前所在區間|查詢年度代表區間)：/, '').trim();
             const val = block.querySelector('.anniv-block-value').innerText.replace(/\s+/g,' ').trim();
             resultText = val;
             p1 = `${title} ➜ ${val}`;
@@ -466,7 +493,24 @@ function saveResult() {
     savedRecords.unshift({ name, hireDate: document.getElementById('hireDate').value, year: yearVal, mode: currentMode, result: resultText, p1, p2 });
     renderRecords();
 }
-function renderRecords() {
+function persistRecords() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(savedRecords)); } catch (e) { console.warn('無法儲存計算紀錄', e); }
+}
+function loadRecordsFromStorage() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        savedRecords = raw ? JSON.parse(raw).slice(0, MAX_RECORDS) : [];
+    } catch (e) {
+        savedRecords = [];
+        console.warn('無法讀取計算紀錄', e);
+    }
+    renderRecords(false);
+}
+function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+function renderRecords(shouldPersist = true) {
+    if (shouldPersist) persistRecords();
     const area = document.getElementById('storage-area');
     document.getElementById('record-count').innerText = savedRecords.length;
     area.style.display = savedRecords.length > 0 ? 'block' : 'none';
@@ -474,7 +518,7 @@ function renderRecords() {
     savedRecords.forEach((r, i) => {
         const shortResult = r.result.length > 35 ? r.result.substring(0, 35) + '…' : r.result;
         const modeLabel = r.mode === 'anniversary' ? '<span class="mode-label anniv">週年</span>' : '<span class="mode-label">曆年</span>';
-        html += `<li class="record-item" onclick="loadRecord(${i})"><div class="record-info"><div class="record-header">${modeLabel} <span>#${savedRecords.length-i} ${r.name}</span><span class="record-result">${shortResult}</span></div><div class="record-detail">到職：${r.hireDate} | 年度：${r.year}</div></div><button class="btn-delete-single" onclick="deleteRecord(event,${i})">🗑️</button></li>`;
+        html += `<li class="record-item" onclick="loadRecord(${i})"><div class="record-info"><div class="record-header">${modeLabel} <span>#${savedRecords.length-i} ${escapeHTML(r.name)}</span><span class="record-result">${escapeHTML(shortResult)}</span></div><div class="record-detail">到職：${escapeHTML(r.hireDate)} | 年度：${escapeHTML(r.year)}</div></div><button class="btn-delete-single" onclick="deleteRecord(event,${i})">🗑️</button></li>`;
     });
     document.getElementById('record-list').innerHTML = html;
 }
